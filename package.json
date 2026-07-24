@@ -1,0 +1,10 @@
+{
+  "name": "myparang_marketing_threads",
+  "version": "1.0.0",
+  "description": "카드뉴스를 Threads 캐러셀 게시물로 발행하는 파이프라인",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "ISC"
+}

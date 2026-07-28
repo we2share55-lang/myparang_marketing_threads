@@ -96,9 +96,10 @@ COMMIT_SHA="$(git rev-parse HEAD)"
 
 echo "[3/5] 캐러셀 아이템 컨테이너 생성 (${#IMAGE_FILES[@]}장)"
 CHILD_IDS=()
+ENCODED_NAME="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$CARDNEWS_NAME")"
 for f in "${IMAGE_FILES[@]}"; do
   fname="$(basename "$f")"
-  RAW_URL="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${COMMIT_SHA}/assets/cardnews/${CARDNEWS_NAME}/${fname}"
+  RAW_URL="https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${COMMIT_SHA}/assets/cardnews/${ENCODED_NAME}/${fname}"
   echo "  - $fname -> $RAW_URL"
   ITEM_ID=$(curl -s -X POST "https://graph.threads.net/v1.0/${THREADS_USER_ID}/threads" \
     --data-urlencode "media_type=IMAGE" \
@@ -107,16 +108,34 @@ for f in "${IMAGE_FILES[@]}"; do
     --data-urlencode "access_token=${THREADS_ACCESS_TOKEN}" \
     | node -e "process.stdin.once('data',d=>{const j=JSON.parse(d);if(j.error){console.error(JSON.stringify(j.error));process.exit(1)}console.log(j.id)})")
   echo "    컨테이너: $ITEM_ID"
+
+  ITEM_STATUS="IN_PROGRESS"
+  for i in $(seq 1 20); do
+    ITEM_STATUS=$(curl -s "https://graph.threads.net/v1.0/${ITEM_ID}?fields=status&access_token=${THREADS_ACCESS_TOKEN}" \
+      | node -e "process.stdin.once('data',d=>console.log(JSON.parse(d).status||'UNKNOWN'))")
+    [ "$ITEM_STATUS" = "FINISHED" ] && break
+    [ "$ITEM_STATUS" = "ERROR" ] && { echo "아이템 컨테이너 처리 실패: $ITEM_ID" >&2; exit 1; }
+    sleep 3
+  done
+  if [ "$ITEM_STATUS" != "FINISHED" ]; then
+    echo "아이템 컨테이너 처리 시간 초과: $ITEM_ID" >&2
+    exit 1
+  fi
+
   CHILD_IDS+=("$ITEM_ID")
 done
 
 CHILDREN_CSV="$(IFS=,; echo "${CHILD_IDS[*]}")"
 
 echo "[4/5] 캐러셀 컨테이너 생성"
+CAPTION_FILE_FOR_CURL="$CAPTION_FILE"
+if command -v cygpath >/dev/null 2>&1; then
+  CAPTION_FILE_FOR_CURL="$(cygpath -w "$CAPTION_FILE")"
+fi
 CAROUSEL_ID=$(curl -s -X POST "https://graph.threads.net/v1.0/${THREADS_USER_ID}/threads" \
   --data-urlencode "media_type=CAROUSEL" \
   --data-urlencode "children=${CHILDREN_CSV}" \
-  --data-urlencode "text@${CAPTION_FILE}" \
+  --data-urlencode "text@${CAPTION_FILE_FOR_CURL}" \
   --data-urlencode "access_token=${THREADS_ACCESS_TOKEN}" \
   | node -e "process.stdin.once('data',d=>{const j=JSON.parse(d);if(j.error){console.error(JSON.stringify(j.error));process.exit(1)}console.log(j.id)})")
 
